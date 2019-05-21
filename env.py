@@ -170,7 +170,8 @@ class Network():
             else:                                                                            #下一跳节点的部分功能在这里实现
                 packet.hops += 1
                 current_time = timeit.default_timer()
-                packet.reward = current_time - packet.qtime
+                if not packet.RLback:
+                    packet.reward = current_time - packet.qtime
                 packet.qtime = current_time
                 self.packet_queue[next_hop].put(packet)
                 self.packet_queue_size[next_hop].put(packet.size + next_hop_current_buffer)
@@ -208,7 +209,7 @@ class Network():
                         #     MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest, receive_port,update_weight=True)
                         #     safe = 1
                         #     #print('first save normal')
-                        if i % 20 == 0:
+                        if i % 14 == 0:
                             MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port, update_weight=True)
                             #print(node,'update network')
                         else:
@@ -274,7 +275,7 @@ class Network():
                             neighbour = True
                             break
                     if not neighbour:
-                        if i % 20 == 0:
+                        if i % 14 == 0:
                             receive_port = 0
                             MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port, update_weight=True)
                             #print(node,'update network')
@@ -300,7 +301,7 @@ class Network():
                     MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(predest,receive_port)
                     TD_target = Q_actual - min(Q_estimate_list)
                     weight = abs(TD_target)
-                    sample = (predest, f_port, reward, Q_estimate_list, MinQ, weight)
+                    sample = [predest, f_port, reward, Q_estimate_list, MinQ, weight]
                     self.replay[node].append(sample)
                     current_node_current_buffer = self.packet_queue_size[node].get()
                     current_node_changed_buffer = current_node_current_buffer - packet.size
@@ -308,19 +309,35 @@ class Network():
                     if len(self.replay[node]) == 5:
                         #print(node,'learn')
                         self.sample[node] = []
-                        interval_list = []
+                        importance_sampling_factor = []
+                        pr_list = []
+                        TD_list = []
                         for i in range(5):
-                            if i == 0:
-                                interval_list.append(Interval(0, self.replay[node][0][5], upper_closed=False))
-                                temp = self.replay[node][0][5]
-                            else:
-                                interval_list.append(Interval(temp, temp + self.replay[node][i][5], upper_closed=False))
-                                temp += self.replay[node][i][5]
+                            TD_list.append(self.replay[node][i][5])
+                        TD_sum = sum(TD_list)
+                        for i in range(5):
+                            pr_list.append(self.replay[node][i][5]/TD_sum)
+                        p = np.array(pr_list)
+                        for i in range(5):
+                            importance_sampling_factor.append((0.2/pr_list[i])**0.1)
+                            self.replay[node][i].append(importance_sampling_factor[i])
                         for i in range(3):
-                            seed = random.uniform(0, interval_list[4].upper_bound)
-                            for j in range(5):
-                                if seed in interval_list[j]:
-                                    self.sample[node].append(self.replay[node][j])
+                            alt_sample_list = [0,1,2,3,4]
+                            chosed_sample_index = np.random.choice(alt_sample_list,p=p.ravel())
+                            self.sample[node].append(self.replay[node][chosed_sample_index])
+                        # interval_list = []
+                        # for i in range(5):
+                        #     if i == 0:
+                        #         interval_list.append(Interval(0, self.replay[node][0][5], upper_closed=False))
+                        #         temp = self.replay[node][0][5]
+                        #     else:
+                        #         interval_list.append(Interval(temp, temp + self.replay[node][i][5], upper_closed=False))
+                        #         temp += self.replay[node][i][5]
+                        # for i in range(3):
+                        #     seed = random.uniform(0, interval_list[4].upper_bound)
+                        #     for j in range(5):
+                        #         if seed in interval_list[j]:
+                        #             self.sample[node].append(self.replay[node][j])
                         self.agent[node].learn(self.sample[node])
                         self.replay[node] = []
             i += 1
@@ -402,18 +419,52 @@ class Network():
 
     def _get_new_packet(self, node):
         callmean = self.arrivalmean[node]
-        i = 0
+        j = 1
+        n_new_list = []
+        n_train_list = []
+        p_list = []
+        for i in range(1, self.n_nodes+1):
+            if i != node:
+                p_list.append(1/(self.n_nodes-1))
+            else:
+                p_list.append(0)
+        p = np.array(p_list)
+        dest_list = []
+        for i in range(1, self.n_nodes+1):
+            dest_list.append(i)
+        for i in range(1, self.n_nodes+1):
+            if i != node:
+                n_new_list.append(int((self.iteration / (self.n_nodes-1)) * 0.75))
+            else:
+                n_new_list.append(0)
+        for i in range(1, self.n_nodes+ 1):
+            if i != node:
+                n_train_list.append(int((self.iteration / (self.n_nodes-1)) * 0.25))
+            else:
+                n_train_list.append(0)
         while True:
             arrival = stats.expon.rvs(scale=1 / callmean, size=1)
             time.sleep(arrival * 10)
             source = node
-            while True:
-                dest = random.randint(1, self.n_nodes)
-                if source != dest:
-                    break
+            if j % 4 != 0:
+                while True:
+                    dest = np.random.choice(dest_list, p=p.ravel())
+                    if node != dest and n_new_list[dest - 1] != 0:
+                        RL = False
+                        n_new_list[dest - 1] -= 1
+                        break
+                    if sum(n_new_list) == 0:
+                        break
+            else:
+                while True:
+                    dest = np.random.choice(dest_list, p=p.ravel())
+                    if node != dest and n_train_list[dest - 1] != 0:
+                        RL = False
+                        n_train_list[dest - 1] -= 1
+                        break
+                    if sum(n_train_list) == 0:
+                        break
             current_time = timeit.default_timer()
-            p = np.array([0.7,0.3])
-            RL = np.random.choice([True, False], p=p.ravel())
             packet = Packet(source, dest, current_time,RL)
             node_buffer = self.buffer[node]
             current_buffer = self.packet_queue_size[node].get()
@@ -426,10 +477,10 @@ class Network():
                 self.packet_queue[node].put(packet)
                 self.packet_queue_size[node].put(packet.size + current_buffer)
                 #print('new', node, i, arrival * 10)
-            if i % 50 == 0:
-                print(node, i, 'new done')
-            i += 1
-            if i > self.iteration:
+            if j % 50 == 0 or j == 1:
+                print(node, j, 'new done')
+            j += 1
+            if j > self.iteration:
                 break
 
 

@@ -1,9 +1,11 @@
 import numpy as np
 import random
+from collections import defaultdict
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
 from keras.utils import to_categorical
 from keras.optimizers import RMSprop
+from keras.callbacks import ReduceLROnPlateau
 from sklearn.model_selection import train_test_split
 import threading
 from time import ctime
@@ -28,8 +30,8 @@ class ADQN:
             self.model.add(Dropout(0.2))
             self.model.add(Dense(8,kernel_initializer='uniform', bias_initializer='zeros',activation='relu'))
             self.model.add(Dropout(0.1))
-            self.model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros',activation='relu'))
-            self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.001), metrics=['accuracy'])
+            self.model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros',activation='linear'))
+            self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
             state_input[0] = 1
@@ -45,8 +47,8 @@ class ADQN:
             self.target_model.add(Dropout(0.2))
             self.target_model.add(Dense(8, kernel_initializer='uniform',bias_initializer='zeros',activation='relu'))
             self.target_model.add(Dropout(0.1))
-            self.target_model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros', activation='relu'))
-            self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.001), metrics=['accuracy'])
+            self.target_model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros', activation='linear'))
+            self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
             state_input[0] = 1
@@ -120,12 +122,14 @@ class ADQN:
         MinQ_list = []
         Q_eval_list =[]
         Q_actual_list = []
+        impotance_sampling_list = []
         for i in range(len(sample_list)):
             state_list.append(sample_list[i][0])
             port_list.append(sample_list[i][1])
             reward_list.append(sample_list[i][2])
             Q_eval_list.append(sample_list[i][3])
             MinQ_list.append(sample_list[i][4])
+            impotance_sampling_list.append((sample_list[i][5]))
         for i in range(len(sample_list)):
             Q_actual_list.append(reward_list[i]+0.9*MinQ_list[i])
         state_input = to_categorical(state_list,num_classes=self.n_nodes+1)
@@ -140,9 +144,13 @@ class ADQN:
             label_list[i][change_port_index] = Q_actual_list[i]
         label_list_array = np.array(label_list)
         label_list_array = label_list_array.reshape(len(state_list),len(Q_eval_list[0]))
+        class_weights = defaultdict(float)
+        for i in range(len(impotance_sampling_list)):
+            class_weights[i] = impotance_sampling_list[i]
         with graph.as_default():
             #print(self.node,'learning start')
-            self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0)
+            reduce_lr = ReduceLROnPlateau(monitor='val_loss',factor=0.1, patience=2, mode='auto')
+            self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0,callbacks=[reduce_lr],class_weight = class_weights)
             #print(self.node,'learning end')
 
 
