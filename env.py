@@ -1,4 +1,3 @@
-import gym
 import numpy as np
 from collections import defaultdict
 import random
@@ -203,36 +202,25 @@ class Network():
                     prenode = packet.node
                     preforward_port = packet.forward_port
                     packet.node = packet.next
+                    predest = dest
                     receive_port = self.port[prenode][preforward_port]
-                    if packet.RL:
+                    if packet.RL and not packet.RLback:
                         # if safe == 0:
                         #     MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest, receive_port,update_weight=True)
                         #     safe = 1
                         #     #print('first save normal')
                         if i % 14 == 0:
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port, update_weight=True)
-                            #print(node,'update network')
+                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port ,update_weight=True)
+                            # print(node,'update network')
                         else:
                             MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
-                        neighbour = False
-                        for i in range(1, len(self.links[node])):
-                            if packet.dest == self.links[node][i]:
-                                packet.forward_port = i
-                                next_hop = self.links[node][packet.forward_port]
-                                neighbour = True
-                                break
-                        if not neighbour:
-                            packet.forward_port = forward_port
-                            next_hop = self.links[node][forward_port]
-                        packet.next = next_hop
+                        packet.forward_port = forward_port
+                        next_hop = self.links[node][forward_port]
                         reward = packet.reward
-                        MinQ, Q_min_target_action = self.agent[node].target(dest, MinQ_port_eval)  # 价值评估
-                        predest = dest
-                        #print('normal backq',node,packet.node,forward_port,packet.next ,prenode, preforward_port, packet.source,predest)
+                        MinQ, Q_min_target_action = self.agent[node].target(dest, receive_port, MinQ_port_eval)           # 价值评估
                         self._backq(node, prenode, reward, MinQ, preforward_port, predest)
-                        self.packet_forward_queue[node][packet.forward_port].put(packet)
+                        #print('normal backq',node,packet.node,forward_port,packet.next ,prenode, preforward_port, packet.source,predest
                         #print(node, 'forward')
-                        continue
                     else:
                         neighbour = False
                         for i in range(1, len(self.links[node])):
@@ -242,12 +230,12 @@ class Network():
                                 neighbour = True
                                 break
                         if not neighbour:
-                            MinQ, Q_min_target_action = self.agent[node].target(dest, 1)
+                            MinQ, Q_min_target_action = self.agent[node].target(dest, receive_port ,1)
                             packet.forward_port = Q_min_target_action
                             next_hop = self.links[node][packet.forward_port]
-                        packet.next = next_hop
-                        self.packet_forward_queue[node][packet.forward_port].put(packet)
-                        continue
+                    packet.next = next_hop
+                    self.packet_forward_queue[node][packet.forward_port].put(packet)
+                    continue
                 if not packet.RLback and packet.next == dest:  # 地址相同，但不是学习返回包，是routed包
                     prenode = packet.node
                     preforward_port = packet.forward_port
@@ -257,8 +245,8 @@ class Network():
                     reward = packet.reward
                     MinQ = 0  # 价值评估
                     predest = dest
-                    #print('routed backq',node,packet.node,forward_port,packet.next, prenode, preforward_port,packet.source ,predest)
-                    self._backq(node, prenode, reward, MinQ, preforward_port, predest)
+                    if packet.RL:
+                        self._backq(node, prenode, reward, MinQ, preforward_port, predest)  #print('routed backq',node,packet.node,forward_port,packet.next, prenode, preforward_port,packet.source ,predest)
                     self.packet_forward_queue[node][packet.forward_port].put(packet)
                     continue
                 if packet.next == None:  # 新的发生包
@@ -267,38 +255,45 @@ class Network():
                     #     MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port,update_weight=True)
                     #     safe = 1
                         #print('first save new')
-                    neighbour = False
-                    for i in range(1, len(self.links[node])):
-                        if packet.dest == self.links[node][i]:
-                            packet.forward_port = i
-                            next_hop = self.links[node][packet.forward_port]
-                            neighbour = True
-                            break
-                    if not neighbour:
-                        if i % 14 == 0:
+                    if not packet.RL:
+                        neighbour = False
+                        for i in range(1, len(self.links[node])):
+                            if packet.dest == self.links[node][i]:
+                                packet.forward_port = i
+                                next_hop = self.links[node][packet.forward_port]
+                                neighbour = True
+                                break
+                        if not neighbour:
                             receive_port = 0
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port, update_weight=True)
+                            MinQ_acutal, forward_port = self.agent[node].target(dest,receive_port,1)
                             #print(node,'update network')
+                            packet.forward_port = forward_port
+                            next_hop = self.links[node][forward_port]
+                    else:
+                        receive_port = 0
+                        if i % 14 == 0:
+                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest, receive_port,update_weight=True)
+                            # print(node,'update network')
                         else:
-                            receive_port = 0
                             MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
                         packet.forward_port = forward_port
                         next_hop = self.links[node][forward_port]
                     packet.next = next_hop
+                    #print('normal backq',node,packet.node,forward_port,packet.next ,prenode, preforward_port, packet.source,predest
                     self.packet_forward_queue[node][packet.forward_port].put(packet)
-                    #print('new packet receive', node, packet.node, packet.next, forward_port, packet.source, packet.dest)
+                    #print(node, 'forward')
                     continue
+                    #print('new packet receive', node, packet.node, packet.next, forward_port, packet.source, packet.dest)
                 if packet.next == dest and packet.RLback:  # 是返回的RL包，经验回放
                     #print(node,'RL bakc receive')
                     prenode = packet.node
                     preforward_port = packet.forward_port
-                    receive_port = self.port[prenode][preforward_port]
                     predest = packet.predest
                     reward = packet.reward
                     f_port = self.port[prenode][preforward_port]
                     MinQ = packet.backQ
                     Q_actual = reward + 0.9 * MinQ
-                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(predest,receive_port)
+                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(predest,f_port)
                     TD_target = Q_actual - min(Q_estimate_list)
                     weight = abs(TD_target)
                     sample = [predest, f_port, reward, Q_estimate_list, MinQ, weight]
@@ -374,6 +369,7 @@ class Network():
             #print(node, 'RL back generate fail')
         else:
             self.packet_queue_size[node].put(current_node_current_buffer + RLback_packet.size)
+            #print(node,prenode,f_port,preforward_port)
             self.packet_forward_queue[node][f_port].put(RLback_packet)
             #print(node, 'RL back generate success')
 
@@ -416,6 +412,23 @@ class Network():
                     plt.plot(x, self.latency[i + 1][j + 1])
                     plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' delay')
                     plt.show()
+        for i in range(len(self.latency)):
+            for j in range(len(self.latency[i + 1]) + 1):
+                if j + 1 != i + 1:
+                    x_list_len = int(len(self.latency[i + 1][j + 1]) / 5)
+                    delay_ave = []
+                    x = []
+                    iter = 0
+                    for q in range(x_list_len):
+                        x.append(q)
+                        lower_bound = q + iter * 4
+                        upper_bound = q + (iter + 1) * 4
+                        delay_ave.append(sum(self.latency[i + 1][j + 1][lower_bound:upper_bound]) / 5)
+                        iter += 1
+                    plt.axis([0, 10, 0, 30])
+                    plt.plot(x, delay_ave)
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' average delay')
+                    plt.show()
 
     def _get_new_packet(self, node):
         callmean = self.arrivalmean[node]
@@ -434,28 +447,22 @@ class Network():
             dest_list.append(i)
         for i in range(1, self.n_nodes+1):
             if i != node:
-                n_new_list.append(int((self.iteration / (self.n_nodes-1)) * 0.75))
+                n_new_list.append(int((self.iteration / (self.n_nodes-1)) * 0.25))
             else:
                 n_new_list.append(0)
         for i in range(1, self.n_nodes+ 1):
             if i != node:
-                n_train_list.append(int((self.iteration / (self.n_nodes-1)) * 0.25))
+                n_train_list.append(int((self.iteration / (self.n_nodes-1)) * 0.75))
             else:
                 n_train_list.append(0)
         while True:
             arrival = stats.expon.rvs(scale=1 / callmean, size=1)
-            time.sleep(arrival * 10)
+            if arrival < 20 and arrival > 5:
+                break
+        while True:
+            time.sleep(arrival)
             source = node
             if j % 4 != 0:
-                while True:
-                    dest = np.random.choice(dest_list, p=p.ravel())
-                    if node != dest and n_new_list[dest - 1] != 0:
-                        RL = False
-                        n_new_list[dest - 1] -= 1
-                        break
-                    if sum(n_new_list) == 0:
-                        break
-            else:
                 while True:
                     dest = np.random.choice(dest_list, p=p.ravel())
                     if node != dest and n_train_list[dest - 1] != 0:
@@ -463,6 +470,15 @@ class Network():
                         n_train_list[dest - 1] -= 1
                         break
                     if sum(n_train_list) == 0:
+                        break
+            else:
+                while True:
+                    dest = np.random.choice(dest_list, p=p.ravel())
+                    if node != dest and n_new_list[dest - 1] != 0:
+                        RL = True
+                        n_new_list[dest - 1] -= 1
+                        break
+                    if sum(n_new_list) == 0:
                         break
             current_time = timeit.default_timer()
             packet = Packet(source, dest, current_time,RL)
@@ -486,7 +502,7 @@ class Network():
 
 if __name__ == '__main__':
     N = Network()
-    N.reset('network_sample.csv', 500)
+    N.reset('network_sample.csv', 200)
     print(N.n_nodes)
     print(N.packet_queue)  # 给每个节点初始化queue队列 每个queue都是空队列
     print(N.packet_forward_queue)

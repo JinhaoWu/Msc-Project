@@ -6,10 +6,8 @@ from keras.layers import Dense, Dropout
 from keras.utils import to_categorical
 from keras.optimizers import RMSprop
 from keras.callbacks import ReduceLROnPlateau
-from sklearn.model_selection import train_test_split
 import threading
 from time import ctime
-from sklearn.utils import shuffle
 import pandas as pd
 import tensorflow as tf
 global graph
@@ -66,18 +64,14 @@ class ADQN:
         Q_estimate_list_temp = Q_estimate_list[0]
         #print('node',self.node)
         #i = 0
-        while True:
-            #print(i)
-            Q_min_port =Q_estimate_list_temp.index(min(Q_estimate_list_temp))+1
-            if Q_min_port != receive_port:
-                break
-            else:
-                index = Q_estimate_list_temp.index(min(Q_estimate_list_temp))
-                Q_estimate_list_temp[index] = max(Q_estimate_list_temp)+1
-                #i += 1
+        Q_min_port = Q_estimate_list_temp.index(min(Q_estimate_list_temp)) + 1
         #print('node',self.node,'length = Q _es',len(Q_estimate_list[0]))
-        p_greedy = 1 - 0.1 + 0.1/len(Q_estimate_list[0])
-        p_not_greedy = 0.1/len(Q_estimate_list[0])
+        if Q_min_port == receive_port or receive_port == 0:
+            p_greedy = 1 - 0.99 + 0.99 / len(Q_estimate_list[0])
+            p_not_greedy = 0.99 / len(Q_estimate_list[0])
+        else:
+            p_greedy = 1 - 0.3 + 0.3/len(Q_estimate_list[0])
+            p_not_greedy = 0.3/len(Q_estimate_list[0])
         p_list = []
         for i in range(1,self.n_port+1):
             if i != Q_min_port:
@@ -93,15 +87,12 @@ class ADQN:
         port_list = []
         for i in range(self.n_port):
             port_list.append(i+1)
-        while True:
-            Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
-            if Q_egreddy_port != receive_port:
-                break
+        Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
         weight_name = str(self.node)+'_weights.h5'
         if update_weight:
             self.model.save_weights(weight_name)
         return Q_min_port,Q_egreddy_port, Q_estimate_list[0]
-    def target(self,dest,MinQ_port_eval): #返回target网络的最小值(价值评估)
+    def target(self,dest,receive_port,MinQ_port_eval): #返回target网络的最小值(价值评估)
         weight_name = str(self.node) + '_weights.h5'
         with graph.as_default():
             self.target_model.load_weights(weight_name)
@@ -113,7 +104,13 @@ class ADQN:
             Q_estimate_array = self.target_model.predict(state_input_array)
         Q_estimate_list = Q_estimate_array.tolist()
         Q_min_actual = Q_estimate_list[0][MinQ_port_eval-1]
-        Q_min_action = Q_estimate_list[0].index(min(Q_estimate_list[0]))+1
+        while True:
+            Q_min_action =Q_estimate_list[0].index(min(Q_estimate_list[0]))+1
+            if Q_min_action != receive_port:
+                break
+            else:
+                index = Q_estimate_list[0].index(min(Q_estimate_list[0]))
+                Q_estimate_list[0][index] = max(Q_estimate_list[0])+1
         return Q_min_actual, Q_min_action
     def learn(self,sample_list):
         state_list = []
@@ -144,13 +141,11 @@ class ADQN:
             label_list[i][change_port_index] = Q_actual_list[i]
         label_list_array = np.array(label_list)
         label_list_array = label_list_array.reshape(len(state_list),len(Q_eval_list[0]))
-        class_weights = defaultdict(float)
-        for i in range(len(impotance_sampling_list)):
-            class_weights[i] = impotance_sampling_list[i]
+        sample_weights = np.array(impotance_sampling_list)
         with graph.as_default():
             #print(self.node,'learning start')
-            reduce_lr = ReduceLROnPlateau(monitor='val_loss',factor=0.1, patience=2, mode='auto')
-            self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0,callbacks=[reduce_lr],class_weight = class_weights)
+            reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
+            self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
             #print(self.node,'learning end')
 
 
