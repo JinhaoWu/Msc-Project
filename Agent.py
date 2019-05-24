@@ -53,7 +53,7 @@ class ADQN:
             state_input_array = np.array(state_input)
             state_input_array = state_input_array.reshape(1,self.n_nodes+1)
             self.target_model.predict(state_input_array)
-    def estimate(self,dest,receive_port,update_weight = False):   #返回两个值 第一个值是最小Q值的动作（port）， 第二个是epsilon贪婪算法的动作（port）
+    def estimate(self,dest,receive_port):   #返回两个值 第一个值是最小Q值的动作（port）， 第二个是epsilon贪婪算法的动作（port）
         state_input = to_categorical(dest,num_classes=self.n_nodes+1)
         state_input[0] = 1
         state_input_array = np.array(state_input)
@@ -88,9 +88,6 @@ class ADQN:
         for i in range(self.n_port):
             port_list.append(i+1)
         Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
-        weight_name = str(self.node)+'_weights.h5'
-        if update_weight:
-            self.model.save_weights(weight_name)
         return Q_min_port,Q_egreddy_port, Q_estimate_list[0]
     def target(self,dest,receive_port,MinQ_port_eval): #返回target网络的最小值(价值评估)
         weight_name = str(self.node) + '_weights.h5'
@@ -147,7 +144,9 @@ class ADQN:
             reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
             self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
             #print(self.node,'learning end')
-
+    def update_network(self):
+        weight_name = str(self.node) + '_weights.h5'
+        self.model.save_weights(weight_name)
 
 
 # 

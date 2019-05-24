@@ -181,7 +181,6 @@ class Network():
 
     def _receiveinqueue(self, node):
         i = 0
-        safe = 0
         while True:
             if self.packet_queue[node].empty():
                 pass
@@ -209,11 +208,7 @@ class Network():
                         #     MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest, receive_port,update_weight=True)
                         #     safe = 1
                         #     #print('first save normal')
-                        if i % 14 == 0:
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port ,update_weight=True)
-                            # print(node,'update network')
-                        else:
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
+                        MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
                         packet.forward_port = forward_port
                         next_hop = self.links[node][forward_port]
                         reward = packet.reward
@@ -271,11 +266,7 @@ class Network():
                             next_hop = self.links[node][forward_port]
                     else:
                         receive_port = 0
-                        if i % 14 == 0:
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest, receive_port,update_weight=True)
-                            # print(node,'update network')
-                        else:
-                            MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
+                        MinQ_port_eval, forward_port, MinQ_eval = self.agent[node].estimate(dest,receive_port)
                         packet.forward_port = forward_port
                         next_hop = self.links[node][forward_port]
                     packet.next = next_hop
@@ -335,7 +326,9 @@ class Network():
                         #             self.sample[node].append(self.replay[node][j])
                         self.agent[node].learn(self.sample[node])
                         self.replay[node] = []
-            i += 1
+                        i += 1
+                        if i % 5 == 0:
+                            self.agent[node].update_network()
             # if i % 100000 == 0:
             #     print('receive',node,i)
             # if i > self.iteration*2:
@@ -502,7 +495,7 @@ class Network():
 
 if __name__ == '__main__':
     N = Network()
-    N.reset('network_sample.csv', 200)
+    N.reset('network_sample.csv', 100)
     print(N.n_nodes)
     print(N.packet_queue)  # 给每个节点初始化queue队列 每个queue都是空队列
     print(N.packet_forward_queue)
