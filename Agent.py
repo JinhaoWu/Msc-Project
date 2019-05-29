@@ -26,9 +26,9 @@ class ADQN:
             self.model = Sequential()
             self.model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='uniform',input_shape=(self.n_nodes+1,)))
             self.model.add(Dropout(0.2))
-            self.model.add(Dense(8,kernel_initializer='uniform', bias_initializer='zeros',activation='relu'))
+            self.model.add(Dense(8,kernel_initializer='zeros', bias_initializer='zeros',activation='relu'))
             self.model.add(Dropout(0.1))
-            self.model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros',activation='linear'))
+            self.model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros',activation='linear'))
             self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
@@ -43,9 +43,9 @@ class ADQN:
             self.target_model = Sequential()
             self.target_model.add(Dense(16, activation='relu',bias_initializer='zeros', input_shape=(self.n_nodes+1,)))
             self.target_model.add(Dropout(0.2))
-            self.target_model.add(Dense(8, kernel_initializer='uniform',bias_initializer='zeros',activation='relu'))
+            self.target_model.add(Dense(8, kernel_initializer='zeros',bias_initializer='zeros',activation='relu'))
             self.target_model.add(Dropout(0.1))
-            self.target_model.add(Dense(n_port, kernel_initializer='uniform', bias_initializer='zeros', activation='linear'))
+            self.target_model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros', activation='linear'))
             self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
@@ -53,7 +53,7 @@ class ADQN:
             state_input_array = np.array(state_input)
             state_input_array = state_input_array.reshape(1,self.n_nodes+1)
             self.target_model.predict(state_input_array)
-    def estimate(self,dest,receive_port):   #返回两个值 第一个值是最小Q值的动作（port）， 第二个是epsilon贪婪算法的动作（port）
+    def estimate(self,dest,receive_port,epsilon):   #返回两个值 第一个值是最小Q值的动作（port）， 第二个是epsilon贪婪算法的动作（port）
         state_input = to_categorical(dest,num_classes=self.n_nodes+1)
         state_input[0] = 1
         state_input_array = np.array(state_input)
@@ -61,17 +61,18 @@ class ADQN:
         with graph.as_default():
             Q_estimate_array = self.model.predict(state_input_array)
         Q_estimate_list = Q_estimate_array.tolist()
-        Q_estimate_list_temp = Q_estimate_list[0]
         #print('node',self.node)
         #i = 0
-        Q_min_port = Q_estimate_list_temp.index(min(Q_estimate_list_temp)) + 1
+        while True:
+            Q_min_port = Q_estimate_list[0].index(min(Q_estimate_list[0])) + 1
+            if Q_min_port != receive_port:
+                break
+            else:
+                index = Q_estimate_list[0].index(min(Q_estimate_list[0]))
+                Q_estimate_list[0][index] = max(Q_estimate_list[0]) + 1
         #print('node',self.node,'length = Q _es',len(Q_estimate_list[0]))
-        if Q_min_port == receive_port or receive_port == 0:
-            p_greedy = 1 - 0.99 + 0.99 / len(Q_estimate_list[0])
-            p_not_greedy = 0.99 / len(Q_estimate_list[0])
-        else:
-            p_greedy = 1 - 0.3 + 0.3/len(Q_estimate_list[0])
-            p_not_greedy = 0.3/len(Q_estimate_list[0])
+        p_greedy = 1 - epsilon + epsilon / len(Q_estimate_list[0])
+        p_not_greedy = epsilon / len(Q_estimate_list[0])
         p_list = []
         for i in range(1,self.n_port+1):
             if i != Q_min_port:
@@ -89,7 +90,7 @@ class ADQN:
             port_list.append(i+1)
         Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
         return Q_min_port,Q_egreddy_port, Q_estimate_list[0]
-    def target(self,dest,receive_port,MinQ_port_eval): #返回target网络的最小值(价值评估)
+    def target(self,dest,MinQ_port_eval): #返回target网络的最小值(价值评估)
         weight_name = str(self.node) + '_weights.h5'
         with graph.as_default():
             self.target_model.load_weights(weight_name)
@@ -101,14 +102,7 @@ class ADQN:
             Q_estimate_array = self.target_model.predict(state_input_array)
         Q_estimate_list = Q_estimate_array.tolist()
         Q_min_actual = Q_estimate_list[0][MinQ_port_eval-1]
-        while True:
-            Q_min_action =Q_estimate_list[0].index(min(Q_estimate_list[0]))+1
-            if Q_min_action != receive_port:
-                break
-            else:
-                index = Q_estimate_list[0].index(min(Q_estimate_list[0]))
-                Q_estimate_list[0][index] = max(Q_estimate_list[0])+1
-        return Q_min_actual, Q_min_action
+        return Q_min_actual
     def learn(self,sample_list):
         state_list = []
         port_list = []
@@ -142,12 +136,15 @@ class ADQN:
         with graph.as_default():
             #print(self.node,'learning start')
             reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
-            self.model.fit(state_input_array, label_list_array, batch_size=1, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
+            self.model.fit(state_input_array, label_list_array, batch_size=10, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
             #print(self.node,'learning end')
-    def update_network(self):
+
+    def update_network(self,epsilon):
         weight_name = str(self.node) + '_weights.h5'
         self.model.save_weights(weight_name)
-
+        if epsilon > 0.1:
+            epsilon -= 0.2
+        return epsilon
 
 # 
 #a = 3

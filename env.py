@@ -31,7 +31,7 @@ def stop_thread(thread):
 
 
 class Packet:
-    def __init__(self, source, dest, btime, RL, reward, prereward,backQ, preforward_port,predest,back):
+    def __init__(self, source, dest, btime, reward, prereward,backQ, preforward_port,predest,back):
         self.dest = dest  # 终点节点
         self.source = source  # 源节点
         self.node = source  # 当前节点
@@ -46,7 +46,6 @@ class Packet:
         self.reward = reward
         self.prereward = prereward
         self.backQ = backQ
-        self.RL = RL
         self.forward_port = None  # 到下一跳节点的port
         self.preforward_port = preforward_port
         self.predest = predest
@@ -145,10 +144,9 @@ class Network():
             current_node_current_buffer = self.packet_queue_size[packet.node].get()
             current_node_changed_buffer = current_node_current_buffer - packet.size
             self.packet_queue_size[packet.node].put(current_node_changed_buffer)
-            if not packet.RL:
-                time = timeit.default_timer()
-                delay = time - packet.birth
-                self.latency[packet.source][packet.dest].append(delay)
+            time = timeit.default_timer()
+            delay = time - packet.birth
+            self.latency[packet.source][packet.dest].append(delay)
         else:
             next_hop = packet.next
             next_hop_current_buffer = self.packet_queue_size[next_hop].get()
@@ -173,6 +171,7 @@ class Network():
 
     def _receiveinqueue(self, node):
         j = 1
+        epsilon = 0.9
         while True:
             if self.packet_queue[node].empty():
                 pass
@@ -189,31 +188,31 @@ class Network():
                     #print(node,'time out')
                     continue
                 dest = packet.dest
-                if len(self.replay[node]) == 10:
+                if len(self.replay[node]) == 5:
                     #print(node,'learn')
                     self.sample[node] = []
                     importance_sampling_factor = []
                     pr_list = []
                     TD_list = []
-                    for i in range(10):
+                    for i in range(5):
                         TD_list.append(self.replay[node][i][5])
                     TD_sum = sum(TD_list)
-                    for i in range(10):
+                    for i in range(5):
                         pr_list.append(self.replay[node][i][5]/TD_sum)
                     p = np.array(pr_list)
-                    for i in range(10):
+                    for i in range(5):
                         importance_sampling_factor.append((0.2/pr_list[i])**0.1)
                         self.replay[node][i].append(importance_sampling_factor[i])
-                    for i in range(10):
-                        alt_sample_list = [0,1,2,3,4,5,6,7,8,9]
+                    for i in range(5):
+                        alt_sample_list = [0,1,2,3,4]
                         chosed_sample_index = np.random.choice(alt_sample_list,p=p.ravel())
                         self.sample[node].append(self.replay[node][chosed_sample_index])
                     self.agent[node].learn(self.sample[node])
                     self.replay[node] = []
                     j += 1
-                    if j % 1 == 0:
+                    if j % 3 == 0 and j != 0:
                         #print(node,'update')
-                        self.agent[node].update_network()
+                        epsilon = self.agent[node].update_network(epsilon)
                 if packet.next != dest and packet.next != None:  # 地址不相同且下一跳不是空，表示正常的包  #动作选择
                     prenode = packet.node
                     preforward_port = packet.forward_port
@@ -222,47 +221,34 @@ class Network():
                     prereward = packet.prereward
                     predest = packet.predest
                     receive_port = self.port[prenode][preforward_port]
-                    if packet.RL:
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port)
-                        packet.forward_port = forward_port
-                        next_hop = self.links[node][forward_port]
-                        MinQ, Q_min_target_action = self.agent[node].target(dest, receive_port, MinQ_port_eval)           # 价值评估
-                        self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
+                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
+                    packet.forward_port = forward_port
+                    next_hop = self.links[node][forward_port]
+                    MinQ = self.agent[node].target(dest, MinQ_port_eval)           # 价值评估
+                    self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
 
-                        if packet.back:
-                            f_port = self.port[prenode][preforward_port]
-                            backQ = packet.backQ
-                            Q_actual = prereward + 0.9 * backQ
-                            TD_target = Q_actual - min(Q_estimate_list)
-                            weight = abs(TD_target)
-                            sample = [predest, f_port, prereward, Q_estimate_list, backQ, weight]
-                            self.replay[node].append(sample)
+                    if packet.back:
+                        f_port = self.port[prenode][preforward_port]
+                        backQ = packet.backQ
+                        Q_actual = prereward + 0.9 * backQ
+                        TD_target = Q_actual - min(Q_estimate_list)
+                        weight = abs(TD_target)
+                        sample = [predest, f_port, prereward, Q_estimate_list, backQ, weight]
+                        self.replay[node].append(sample)
 
-                        if not self.back[node][next_hop].empty():
-                            back_infor = self.back[node][next_hop].get()
-                            packet.prereward = back_infor[0]
-                            packet.backQ = back_infor[1]
-                            packet.preforward_port = back_infor[2]
-                            packet.predest = back_infor[3]
-                            packet.back = True
-                        else:
-                            packet.prereward = None
-                            packet.backQ = None
-                            packet.preforward_port = None
-                            packet.predest = None
-                            packet.back = False
+                    if not self.back[node][next_hop].empty():
+                        back_infor = self.back[node][next_hop].get()
+                        packet.prereward = back_infor[0]
+                        packet.backQ = back_infor[1]
+                        packet.preforward_port = back_infor[2]
+                        packet.predest = back_infor[3]
+                        packet.back = True
                     else:
-                        neighbour = False
-                        for i in range(1, len(self.links[node])):
-                            if packet.dest == self.links[node][i]:
-                                packet.forward_port = i
-                                next_hop = self.links[node][packet.forward_port]
-                                neighbour = True
-                                break
-                        if not neighbour:
-                            MinQ, Q_min_target_action = self.agent[node].target(dest, receive_port ,1)
-                            packet.forward_port = Q_min_target_action
-                            next_hop = self.links[node][packet.forward_port]
+                        packet.prereward = None
+                        packet.backQ = None
+                        packet.preforward_port = None
+                        packet.predest = None
+                        packet.back = False
                     packet.next = next_hop
                     self.packet_forward_queue[node][packet.forward_port].put(packet)
                     continue
@@ -277,46 +263,31 @@ class Network():
                     prereward = packet.prereward
                     receive_port = self.port[prenode][preforward_port]
                     MinQ = 0  # 价值评估
-                    if packet.RL:
-                        self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
+                    self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
 
-                        if packet.back:
-                            MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port)
-                            f_port = self.port[prenode][preforward_port]
-                            backQ = packet.backQ
-                            Q_actual = prereward + 0.9 * backQ
-                            TD_target = Q_actual - min(Q_estimate_list)
-                            weight = abs(TD_target)
-                            sample = [predest, f_port, prereward, Q_estimate_list, backQ, weight]
-                            self.replay[node].append(sample)
+                    if packet.back:
+                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
+                        f_port = self.port[prenode][preforward_port]
+                        backQ = packet.backQ
+                        Q_actual = prereward + 0.9 * backQ
+                        TD_target = Q_actual - min(Q_estimate_list)
+                        weight = abs(TD_target)
+                        sample = [predest, f_port, prereward, Q_estimate_list, backQ, weight]
+                        self.replay[node].append(sample)
                     self.packet_forward_queue[node][packet.forward_port].put(packet)
                     continue
                 if packet.next == None:  # 新的发生包
-                    if not packet.RL:
-                        neighbour = False
-                        for i in range(1, len(self.links[node])):
-                            if packet.dest == self.links[node][i]:
-                                packet.forward_port = i
-                                next_hop = self.links[node][packet.forward_port]
-                                neighbour = True
-                                break
-                        if not neighbour:
-                            receive_port = 0
-                            MinQ_acutal, forward_port = self.agent[node].target(dest,receive_port,1)
-                            packet.forward_port = forward_port
-                            next_hop = self.links[node][forward_port]
-                    else:
-                        receive_port = 0
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port)
-                        packet.forward_port = forward_port
-                        next_hop = self.links[node][forward_port]
-                        if not self.back[node][next_hop].empty():
-                            back_infor = self.back[node][next_hop].get()
-                            packet.prereward = back_infor[0]
-                            packet.backQ = back_infor[1]
-                            packet.preforward_port = back_infor[2]
-                            packet.predest = back_infor[3]
-                            packet.back = True
+                    receive_port = 0
+                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
+                    packet.forward_port = forward_port
+                    next_hop = self.links[node][forward_port]
+                    if not self.back[node][next_hop].empty():
+                        back_infor = self.back[node][next_hop].get()
+                        packet.prereward = back_infor[0]
+                        packet.backQ = back_infor[1]
+                        packet.preforward_port = back_infor[2]
+                        packet.predest = back_infor[3]
+                        packet.back = True
                     packet.next = next_hop
                     self.packet_forward_queue[node][packet.forward_port].put(packet)
 
@@ -368,7 +339,7 @@ class Network():
                     x = []
                     for q in range(x_list_len):
                         x.append(q)
-                    plt.axis([0, 25, 0, 100])
+                    plt.axis([0, 75, 0, 70])
                     plt.plot(x, self.latency[i + 1][j + 1])
                     plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' delay')
                     plt.show()
@@ -385,7 +356,7 @@ class Network():
                         upper_bound = q + (iter + 1) * 4
                         delay_ave.append(sum(self.latency[i + 1][j + 1][lower_bound:upper_bound]) / 5)
                         iter += 1
-                    plt.axis([0, 5, 0, 100])
+                    plt.axis([0, 15, 0, 70])
                     plt.plot(x, delay_ave)
                     plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' average delay')
                     plt.show()
@@ -394,7 +365,6 @@ class Network():
         callmean = self.arrivalmean[node]
         j = 1
         n_new_list = []
-        n_train_list = []
         p_list = []
         for i in range(1, self.n_nodes+1):
             if i != node:
@@ -403,45 +373,30 @@ class Network():
                 p_list.append(0)
         p = np.array(p_list)
         dest_list = []
+        dest_temp = []
         for i in range(1, self.n_nodes+1):
             dest_list.append(i)
-        for i in range(1, self.n_nodes+1):
+        for i in range(1, self.n_nodes + 1):
             if i != node:
-                n_new_list.append(int((self.iteration / (self.n_nodes-1)) * 0.25))
+                n_new_list.append(int((self.iteration / (self.n_nodes - 1))))
+                dest_temp.append(i)
             else:
                 n_new_list.append(0)
-        for i in range(1, self.n_nodes+ 1):
-            if i != node:
-                n_train_list.append(int((self.iteration / (self.n_nodes-1)) * 0.75))
-            else:
-                n_train_list.append(0)
+        dest_temp_1 = dest_temp.copy()
         while True:
-            while True:
-                arrival = stats.expon.rvs(scale=1 / callmean, size=1)
-                if arrival < 20 and arrival > 15:
-                    break
-            time.sleep(arrival)
+            time.sleep(callmean)
             source = node
-            if j % 4 != 0:
-                while True:
-                    dest = np.random.choice(dest_list, p=p.ravel())
-                    if node != dest and n_train_list[dest - 1] != 0:
-                        RL = True
-                        n_train_list[dest - 1] -= 1
-                        break
-                    #print('node train ',node)
-                    if sum(n_train_list) == 0:
-                        break
-            else:
-                while True:
-                    dest = np.random.choice(dest_list, p=p.ravel())
-                    if node != dest and n_new_list[dest - 1] != 0:
-                        RL = False
-                        n_new_list[dest - 1] -= 1
-                        break
-                    #print('node new ', node)
-                    if sum(n_new_list) == 0:
-                        break
+            while True:
+                dest = np.random.choice(dest_list, p=p.ravel())
+                if node != dest and n_new_list[dest - 1] != 0 and dest in dest_temp_1:
+                    n_new_list[dest - 1] -= 1
+                    dest_temp_1.remove(dest)
+                    if not dest_temp_1:
+                        dest_temp_1 = dest_temp.copy()
+                    break
+                #print('node new ', node)
+                if sum(n_new_list) == 0:
+                    break
             current_time = timeit.default_timer()
             reward = 0
             backQ = None
@@ -449,7 +404,7 @@ class Network():
             predest = None
             back = False
             prereward = None
-            packet = Packet(source, dest, current_time,RL, reward, prereward,backQ, preforward_port,predest,back)
+            packet = Packet(source, dest, current_time, reward, prereward,backQ, preforward_port,predest,back)
             node_buffer = self.buffer[node]
             #print('node get',node)
             current_buffer = self.packet_queue_size[node].get()
@@ -472,7 +427,7 @@ class Network():
 
 if __name__ == '__main__':
     N = Network()
-    N.reset('network_sample.csv', 500)
+    N.reset('network_sample.csv', 300)
     print(N.n_nodes)
     print(N.packet_queue)  # 给每个节点初始化queue队列 每个queue都是空队列
     print(N.packet_forward_queue)
