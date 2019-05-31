@@ -427,7 +427,7 @@ class Network():
 
 if __name__ == '__main__':
     N = Network()
-    N.reset('network_sample.csv', 300)
+    N.reset('network_sample.csv', 500)
     print(N.n_nodes)
     print(N.packet_queue)  # 给每个节点初始化queue队列 每个queue都是空队列
     print(N.packet_forward_queue)
