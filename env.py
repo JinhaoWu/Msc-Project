@@ -12,6 +12,8 @@ from scipy import stats
 import matplotlib.pyplot as plt
 import inspect
 import ctypes
+import os
+import time
 
 
 def _async_raise(thread_id, c):
@@ -256,8 +258,21 @@ class Network():
                                 if i != receive_port:
                                     delta_t = timeit.default_timer() - self.last[node][i]
                                     Q_TCP[i] = Q_estimate_list[i-1]+self.recovery_rate[node][dest][i]*delta_t
-                                    forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
-                                    packet.forward_port = forward_port
+                            min_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            Q_TCP[min_port] = max(Q_TCP.values())
+                            forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            packet.forward_port = forward_port
+                    else:
+                        if self.links[node] == 2:
+                            pass
+                        else:
+                            Q_TCP = defaultdict(float)
+                            for i in range(1,len(Q_estimate_list)+1):
+                                if i != receive_port:
+                                    delta_t = timeit.default_timer() - self.last[node][i]
+                                    Q_TCP[i] = Q_estimate_list[i-1]+self.recovery_rate[node][dest][i]*delta_t
+                            forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            packet.forward_port = forward_port
                     next_hop = self.links[node][forward_port]
                     MinQ = self.agent[node].target(dest, MinQ_port_eval)           # 价值评估
                     self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
@@ -324,8 +339,6 @@ class Network():
                 if packet.next == None:  # 新的发生包
                     receive_port = 0
                     MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
-                    packet.forward_port = forward_port
-                    next_hop = self.links[node][forward_port]
 
                     if packet.type == 'TCP':
                         Q_TCP = defaultdict(float)
@@ -333,9 +346,20 @@ class Network():
                             if i != receive_port:
                                 delta_t = timeit.default_timer() - self.last[node][i]
                                 Q_TCP[i] = Q_estimate_list[i-1]+self.recovery_rate[node][dest][i]*delta_t
-                                forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
-                                packet.forward_port = forward_port
+                        min_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                        Q_TCP[min_port] = max(Q_TCP.values())
+                        forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                        packet.forward_port = forward_port
+                    else:
+                        Q_TCP = defaultdict(float)
+                        for i in range(1, len(Q_estimate_list) + 1):
+                            if i != receive_port:
+                                delta_t = timeit.default_timer() - self.last[node][i]
+                                Q_TCP[i] = Q_estimate_list[i - 1] + self.recovery_rate[node][dest][i] * delta_t
+                        forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                        packet.forward_port = forward_port
 
+                    next_hop = self.links[node][forward_port]
                     if not self.back[node][next_hop].empty():
                         back_infor = self.back[node][next_hop].get()
                         packet.prereward = back_infor[0]
@@ -391,6 +415,13 @@ class Network():
         print(self.latency_TCP)
         print(self.packet_loss_UDP)
         print(self.packet_loss_TCP)
+        path = os.getcwd()
+        Time = time.ctime()
+        Time = Time.replace(' ', '_')
+        Time = Time.replace(':', '_')
+        path = path + '\\' + Time
+        path = path.replace('\\', '\\\\')
+        os.makedirs(path)
         for i in range(len(self.latency_UDP)):
             for j in range(len(self.latency_UDP[i + 1])+1):
                 if j + 1 != i + 1:
@@ -400,9 +431,10 @@ class Network():
                         x.append(q)
                     plt.ylim(0,70)
                     plt.plot(x, self.latency_UDP[i + 1][j + 1])
-                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' delay')
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_UDP delay')
                     plt.xlabel('iteration')
                     plt.ylabel('delay')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_UDP delay')
                     plt.show()
         for i in range(len(self.latency_UDP)):
             for j in range(len(self.latency_UDP[i + 1]) + 1):
@@ -419,12 +451,86 @@ class Network():
                         delay_ave.append(sum(self.latency_UDP[i + 1][j + 1][lower_bound:upper_bound]) / 5)
                     plt.ylim(0,50)
                     plt.plot(x, delay_ave)
-                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + ' average delay')
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_UDP average delay')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_UDP average delay')
                     plt.xlabel('iteration (5 as a batch)')
                     plt.ylabel('delay')
                     plt.show()
+        for i in range(len(self.packet_loss_UDP)):
+            for j in range(len(self.packet_loss_UDP[i + 1]) + 1):
+                if j + 1 != i + 1:
+                    x_list_len = int(len(self.packet_loss_UDP[i + 1][j + 1]) / 5)
+                    loss_rate = []
+                    x = []
+                    temp = 0
+                    for q in range(x_list_len):
+                        x.append(q)
+                        lower_bound = temp
+                        upper_bound = temp + 5
+                        temp = upper_bound
+                        loss_rate.append(sum(self.packet_loss_UDP[i + 1][j + 1][lower_bound:upper_bound]) / 5)
+                    plt.ylim(-0.2, 1.2)
+                    plt.plot(x, loss_rate)
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_UDP packet loss rate')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_UDP packet loss')
+                    plt.xlabel('iteration (5 as a batch)')
+                    plt.ylabel('loss rate')
+                    plt.show()
 
-
+        for i in range(len(self.latency_TCP)):
+            for j in range(len(self.latency_TCP[i + 1])+1):
+                if j + 1 != i + 1:
+                    x_list_len = len(self.latency_TCP[i + 1][j + 1])
+                    x = []
+                    for q in range(x_list_len):
+                        x.append(q)
+                    plt.ylim(0,70)
+                    plt.plot(x, self.latency_TCP[i + 1][j + 1])
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_TCP delay')
+                    plt.xlabel('iteration')
+                    plt.ylabel('delay')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_TCP delay')
+                    plt.show()
+        for i in range(len(self.latency_TCP)):
+            for j in range(len(self.latency_TCP[i + 1]) + 1):
+                if j + 1 != i + 1:
+                    x_list_len = int(len(self.latency_TCP[i + 1][j + 1]) / 5)
+                    delay_ave = []
+                    x = []
+                    temp = 0
+                    for q in range(x_list_len):
+                        x.append(q)
+                        lower_bound = temp
+                        upper_bound = temp + 5
+                        temp = upper_bound
+                        delay_ave.append(sum(self.latency_TCP[i + 1][j + 1][lower_bound:upper_bound]) / 5)
+                    plt.ylim(0,50)
+                    plt.plot(x, delay_ave)
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_TCP average delay')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_TCP average delay')
+                    plt.xlabel('iteration (5 as a batch)')
+                    plt.ylabel('delay')
+                    plt.show()
+        for i in range(len(self.packet_loss_TCP)):
+            for j in range(len(self.packet_loss_TCP[i + 1]) + 1):
+                if j + 1 != i + 1:
+                    x_list_len = int(len(self.packet_loss_TCP[i + 1][j + 1]) / 5)
+                    loss_rate = []
+                    x = []
+                    temp = 0
+                    for q in range(x_list_len):
+                        x.append(q)
+                        lower_bound = temp
+                        upper_bound = temp + 5
+                        temp = upper_bound
+                        loss_rate.append(sum(self.packet_loss_TCP[i + 1][j + 1][lower_bound:upper_bound]) / 5)
+                    plt.ylim(-0.2, 1.2)
+                    plt.plot(x, loss_rate)
+                    plt.title('node ' + str(i + 1) + ' to node ' + str(j + 1) + '_TCP packet loss rate')
+                    plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_TCP packet loss')
+                    plt.xlabel('iteration (5 as a batch)')
+                    plt.ylabel('loss rate')
+                    plt.show()
     def _get_new_packet(self, node):
         callmean = self.arrivalmean[node]
         j = 1
