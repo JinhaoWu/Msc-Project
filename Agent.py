@@ -24,7 +24,7 @@ class ADQN:
         self.n_port = n_port
         with graph.as_default():
             self.model = Sequential()
-            self.model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='uniform',input_shape=(self.n_nodes+1,)))
+            self.model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='zeros',input_shape=(self.n_nodes+1,)))
             self.model.add(Dropout(0.2))
             self.model.add(Dense(8,kernel_initializer='zeros', bias_initializer='zeros',activation='relu'))
             self.model.add(Dropout(0.1))
@@ -41,7 +41,7 @@ class ADQN:
             self.model.save_weights(weight_name)
         with graph.as_default():
             self.target_model = Sequential()
-            self.target_model.add(Dense(16, activation='relu',bias_initializer='zeros', input_shape=(self.n_nodes+1,)))
+            self.target_model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='zeros',input_shape=(self.n_nodes+1,)))
             self.target_model.add(Dropout(0.2))
             self.target_model.add(Dense(8, kernel_initializer='zeros',bias_initializer='zeros',activation='relu'))
             self.target_model.add(Dropout(0.1))
@@ -88,7 +88,10 @@ class ADQN:
         port_list = []
         for i in range(self.n_port):
             port_list.append(i+1)
-        Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
+        while True:
+            Q_egreddy_port = np.random.choice(port_list, p=p.ravel())
+            if Q_egreddy_port != receive_port:
+                break
         return Q_min_port,Q_egreddy_port, Q_estimate_list[0]
     def target(self,dest,MinQ_port_eval): #返回target网络的最小值(价值评估)
         weight_name = str(self.node) + '_weights.h5'
@@ -139,12 +142,32 @@ class ADQN:
             self.model.fit(state_input_array, label_list_array, batch_size=10, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
             #print(self.node,'learning end')
 
-    def update_network(self,epsilon):
+    def update_network(self,beta):
         weight_name = str(self.node) + '_weights.h5'
         self.model.save_weights(weight_name)
+        if beta > 0.1:
+            beta -= 0.3
+        return beta
+    def update_epsilon(self,epsilon):
         if epsilon > 0.1:
             epsilon -= 0.2
         return epsilon
+    def show_routing_table(self):
+        weight_name = str(self.node) + '_weights.h5'
+        with graph.as_default():
+            self.target_model.load_weights(weight_name)
+        test_list = []
+        for i in range(1,self.n_nodes+1):
+            if i != self.node:
+                test_list.append(i)
+        for i in range(len(test_list)):
+            state_input = to_categorical(test_list[i], num_classes=self.n_nodes + 1)
+            state_input[0] = 1
+            state_input_array = np.array(state_input)
+            state_input_array = state_input_array.reshape(1, self.n_nodes + 1)
+            with graph.as_default():
+                Q_estimate_array = self.target_model.predict(state_input_array)
+            print(Q_estimate_array)
 
 # 
 #a = 3
@@ -158,13 +181,18 @@ class ADQN:
 
 # with graph.as_default():
 #     model = Sequential()
-#     model.add(Dense(16, activation='relu', bias_initializer='zeros', kernel_initializer='uniform', input_shape=(7,)))
+#     model.add(Dense(16, activation='relu', bias_initializer='zeros', kernel_initializer='uniform', input_shape=(6,)))
 #     model.add(Dropout(0.2))
 #     model.add(Dense(8, kernel_initializer='uniform', bias_initializer='zeros', activation='relu'))
 #     model.add(Dropout(0.1))
-#     model.add(Dense(3, kernel_initializer='uniform', bias_initializer='zeros', activation='relu'))
+#     model.add(Dense(2, kernel_initializer='uniform', bias_initializer='zeros', activation='linear'))
 #     model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.001), metrics=['accuracy'])
-#
+#     weight_name = '1_weights.h5'
+#     model.load_weights(weight_name)
+#     for layer in model.layers:
+#         weights = layer.get_weights()
+#         print(weights)
+    #
 #
 # with graph.as_default():
 #     model1 = Sequential()
@@ -174,6 +202,8 @@ class ADQN:
 #     model1.add(Dropout(0.1))
 #     model1.add(Dense(3, kernel_initializer='uniform', bias_initializer='zeros', activation='relu'))
 #     model1.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.001), metrics=['accuracy'])
+
+
 #
 # def test(model):
 #     a = 3
@@ -232,7 +262,8 @@ class ADQN:
 # th1.start()
 # th2.start()
 
-
+a = ADQN(5,1,2)
+a.show_routing_table()
 
 
 
