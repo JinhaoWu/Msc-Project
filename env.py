@@ -15,6 +15,7 @@ import ctypes
 import os
 import time
 from scipy.stats import truncnorm
+import sys
 
 
 
@@ -183,7 +184,7 @@ class Network():
             print(packet.type,packet.source,packet.dest,packet.hops)
             if packet.type == 'TCP':
                 self.latency_TCP[packet.source][packet.dest].append(packet.delay)
-                #self.tcp_loss[packet.node] = False
+                self.tcp_loss[packet.node] = False
             if packet.type == 'UDP':
                 self.latency_UDP[packet.source][packet.dest].append(packet.delay)
         else:
@@ -290,6 +291,14 @@ class Network():
                 if j % 2 == 0:
                     epsilon = self.agent[node].update_epsilon(epsilon)
                     print(node,epsilon)
+            if self.tcp_loss[node]:
+                print(node, 'epsilon reset')
+                self.tcp_loss[packet.node] = False
+                epsilon = 0.5
+            elif self.tcp_loss_1[node]:
+                print(node, 'epsilon reset')
+                self.tcp_loss_1[packet.node] = False
+                epsilon = 0.5
             if packet.next != dest and packet.next != None:  # 地址不相同且下一跳不是空，表示正常的包  #动作选择
                 prenode = packet.node
                 preforward_port = packet.forward_port
@@ -307,16 +316,7 @@ class Network():
                     MinQ_port_eval = forward_port
                     packet.forward_port = forward_port
                 else:
-                    if self.tcp_loss[node]:
-                        print(node, 'epsilon reset')
-                        self.tcp_loss[packet.node] = False
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port,0.9)
-                    elif self.tcp_loss_1[node]:
-                        print(node, 'epsilon reset')
-                        self.tcp_loss_1[packet.node] = False
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,0.9)
-                    else:
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
+                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
                     packet.forward_port = forward_port
                     if packet.type == 'TCP':
                         if self.links[node] == 3:
@@ -404,16 +404,7 @@ class Network():
                     forward_port = list(self.neighbour[node].keys())[list(self.neighbour[node].values()).index(dest)]
                     packet.forward_port = forward_port
                 else:
-                    if self.tcp_loss[node]:
-                        print(node, 'epsilon reset')
-                        self.tcp_loss[packet.node] = False
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port, 0.9)
-                    elif self.tcp_loss_1[node]:
-                        print(node, 'epsilon reset')
-                        self.tcp_loss_1[packet.node] = False
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port,0.9)
-                    else:
-                        MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port,epsilon)
+                    MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port,epsilon)
                     packet.forward_port = forward_port
                     if packet.type == 'TCP':
                         Q_TCP = defaultdict(float)
@@ -617,6 +608,7 @@ class Network():
                     plt.ylabel('routed rate')
                     plt.savefig('.\\' + Time + '\\' + str(i + 1) + '_' + str(j + 1) + '_TCP packet loss')
                     plt.show()
+        sys.exit()
     def _get_new_packet(self, node):
         callmean = self.arrivalmean[node]
         j = 1
@@ -682,8 +674,8 @@ class Network():
                 self.active_packets += 1
                 self.packet_queue[node].put(packet)
                 self.packet_queue_size[node].put(packet.size + current_buffer)
-                # if packet.type == 'TCP':
-                #     self.tcp_loss_1[node] = False
+                if packet.type == 'TCP':
+                    self.tcp_loss_1[node] = False
                 #print('new', node, i, arrival * 10)
             if j % 50 == 0 or j == 1:
                 print(node, j, 'new done')
