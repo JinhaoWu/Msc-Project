@@ -191,7 +191,7 @@ class Network():
             print(packet.type,packet.source,packet.dest,packet.hops)
             if packet.type == 'UDP':
                 self.latency_UDP[packet.source][packet.dest].append(packet.delay)
-                self.UDP_loss[packet.node] = False
+                #self.UDP_loss[packet.node] = False
             if packet.type == 'TCP':
                 self.latency_TCP[packet.source][packet.dest].append(packet.delay)
             if packet.type == 'Train':
@@ -207,7 +207,7 @@ class Network():
                 self.packet_queue_size[packet.node].put(current_node_changed_buffer)
                 if packet.type == 'UDP':
                     self.packet_loss_UDP[packet.source][packet.dest].append((next_hop,0,'n_f'))
-                    self.UDP_loss[packet.node] = True
+                    self.UDP_loss_1[packet.node] = True
                 if packet.type == 'TCP':
                     self.packet_loss_TCP[packet.source][packet.dest].append((next_hop,0,'n_f'))
                 if packet.type == 'Train':
@@ -224,8 +224,8 @@ class Network():
                 current_node_current_buffer = self.packet_queue_size[packet.node].get()
                 current_node_changed_buffer = current_node_current_buffer - packet.size
                 self.packet_queue_size[packet.node].put(current_node_changed_buffer)
-                if packet.type == 'UDP':
-                    self.UDP_loss[packet.node] = False
+                # if packet.type == 'UDP':
+                #     self.UDP_loss[packet.node] = False
                 #print(next_hop,'forwarded')
     def _receiveinqueue(self, node):
         j = 1
@@ -242,7 +242,7 @@ class Network():
             packet.delay_1 = delay_1
             #print(delay_1)
             packet.delay = packet.delay + delay_1
-            if (elapse_time > 13 and packet.type == 'Train') or (elapse_time > 16 and packet.type == 'TCP') or (elapse_time > 16 and packet.type == 'UDP'):
+            if (elapse_time > 25 and packet.type == 'Train') or (elapse_time > 30 and packet.type == 'TCP') or (elapse_time > 30 and packet.type == 'UDP'):
                 self.send_fail += 1
                 current_node_current_buffer = self.packet_queue_size[node].get()
                 current_node_changed_buffer = current_node_current_buffer - packet.size
@@ -280,42 +280,36 @@ class Network():
                     sample = [predest, f_port, prereward, Q_estimate_list, backQ, weight]
                     self.replay[node].append(sample)
                 continue
-            if len(self.replay[node]) == 20:
+            if len(self.replay[node]) == 10:
                 #print(node,'learn')
                 self.sample[node] = []
                 importance_sampling_factor = []
                 pr_list = []
                 TD_list = []
-                for i in range(20):
+                for i in range(10):
                     TD_list.append(self.replay[node][i][5])
                 TD_sum = sum(TD_list)
-                for i in range(20):
+                for i in range(10):
                     pr_list.append(self.replay[node][i][5]/TD_sum)
                 p = np.array(pr_list)
-                for i in range(20):
+                for i in range(10):
                     importance_sampling_factor.append((0.2/pr_list[i])**0.01)
                     self.replay[node][i].append(importance_sampling_factor[i])
-                for i in range(100):
-                    alt_sample_list = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]
+                for i in range(50):
+                    alt_sample_list = [0,1,2,3,4,5,6,7,8,9]
                     chosed_sample_index = np.random.choice(alt_sample_list,p=p.ravel())
                     self.sample[node].append(self.replay[node][chosed_sample_index])
+                print(node, 'learn')
                 self.agent[node].learn(self.sample[node])
                 self.replay[node] = []
                 j += 1
                 if j % 2 == 0 and j != 0:
-                    #print(node,'update')
+                    print(node,' ', j/2 ,'update')
                     beta = self.agent[node].update_network(beta)
+                    #self.agent[node].show_routing_table()
                 if j % 2 == 0:
                     epsilon = self.agent[node].update_epsilon(epsilon)
                     print(node,epsilon)
-            if self.UDP_loss[node]:
-                print(node, 'epsilon reset')
-                self.UDP_loss[packet.node] = False
-                epsilon = 0.5
-            elif self.UDP_loss_1[node]:
-                print(node, 'epsilon reset')
-                self.UDP_loss_1[packet.node] = False
-                epsilon = 0.5
             if packet.next != dest and packet.next != None:  # 地址不相同且下一跳不是空，表示正常的包  #动作选择
                 prenode = packet.node
                 preforward_port = packet.forward_port
@@ -334,6 +328,7 @@ class Network():
                     packet.forward_port = forward_port
                 else:
                     MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest,receive_port,epsilon)
+                    #print(node, 'forward',packet.dest, Q_estimate_list)
                     packet.forward_port = forward_port
                     if packet.type == 'UDP':
                         if self.links[node] == 3:
@@ -345,13 +340,26 @@ class Network():
                                     Q_UDP[i] = Q_estimate_list[i-1]
                             min_port = min(Q_UDP.keys(), key=(lambda k: Q_UDP[k]))
                             if min_port == receive_port:
-                                Q_UDP[min_port] = max(Q_UDP.values())
+                                Q_UDP[min_port] = max(Q_UDP.values()) + 1
                                 min_port = min(Q_UDP.keys(), key=(lambda k: Q_UDP[k]))
                             forward_port = min_port
                             packet.forward_port = forward_port
-                    if packet.type == 'TCP':
+                    elif packet.type == 'TCP':
                         if self.links[node] == 3:
                             pass
+                        elif not self.UDP_loss and not self.UDP_loss_1:
+                            Q_TCP = defaultdict(float)
+                            for i in range(1,len(Q_estimate_list)+1):
+                                if i != receive_port:
+                                    Q_TCP[i] = Q_estimate_list[i-1]
+                            #min_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            #Q_TCP[min_port] = max(Q_TCP.values()) + 1
+                            min_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            if min_port == receive_port:
+                                Q_TCP[min_port] = max(Q_TCP.values()) + 1
+                                min_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            forward_port = min_port
+                            packet.forward_port = forward_port
                         else:
                             Q_TCP = defaultdict(float)
                             for i in range(1,len(Q_estimate_list)+1):
@@ -367,8 +375,9 @@ class Network():
                             packet.forward_port = forward_port
 
                 next_hop = self.links[node][forward_port]
-                MinQ = self.agent[node].target(dest, MinQ_port_eval)           # 价值评估
-                self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
+                if packet.type == 'Train':
+                    MinQ = self.agent[node].target(dest, MinQ_port_eval)           # 价值评估
+                    self.back[node][prenode].put((reward,MinQ,preforward_port,dest))
 
                 if packet.back:
                     f_port = self.port[prenode][preforward_port]
@@ -397,6 +406,15 @@ class Network():
                 packet.next = next_hop
                 self.packet_forward_queue[node][packet.forward_port].put(packet)
                 self.last[node][packet.forward_port] = timeit.default_timer()
+
+                if self.UDP_loss[node]:
+                    print(node, 'forward time out epsilon reset')
+                    self.UDP_loss[node] = False
+                    epsilon = 0.5
+                elif self.UDP_loss_1[node]:
+                    print(node, 'forward queue full epsilon reset')
+                    self.UDP_loss_1[node] = False
+                    epsilon = 0.5
                 continue
             if packet.next == dest:  # 地址相同，但不是学习返回包，是routed包
                 prenode = packet.node
@@ -438,6 +456,7 @@ class Network():
                     packet.forward_port = forward_port
                 else:
                     MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port,epsilon)
+                    #print(node, 'new', packet.dest, Q_estimate_list)
                     packet.forward_port = forward_port
                     if packet.type == 'UDP':
                         Q_UDP = defaultdict(float)
@@ -445,14 +464,23 @@ class Network():
                             Q_UDP[i] = Q_estimate_list[i-1]
                         forward_port = min(Q_UDP.keys(), key=(lambda k: Q_UDP[k]))
                         packet.forward_port = forward_port
-                    if packet.type == 'TCP':
-                        Q_TCP = defaultdict(float)
-                        for i in range(1,len(Q_estimate_list)+1):
-                            Q_TCP[i] = Q_estimate_list[i-1]
-                        forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
-                        Q_TCP[forward_port] = max(Q_TCP.values()) + 1
-                        forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
-                        packet.forward_port = forward_port
+                    elif packet.type == 'TCP':
+                        if not self.UDP_loss and not self.UDP_loss_1:
+                            Q_TCP = defaultdict(float)
+                            for i in range(1,len(Q_estimate_list)+1):
+                                Q_TCP[i] = Q_estimate_list[i-1]
+                            #forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            #Q_TCP[forward_port] = max(Q_TCP.values()) + 1
+                            forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            packet.forward_port = forward_port
+                        else:
+                            Q_TCP = defaultdict(float)
+                            for i in range(1,len(Q_estimate_list)+1):
+                                Q_TCP[i] = Q_estimate_list[i-1]
+                            #forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            #Q_TCP[forward_port] = max(Q_TCP.values()) + 1
+                            forward_port = min(Q_TCP.keys(), key=(lambda k: Q_TCP[k]))
+                            packet.forward_port = forward_port
 
                 next_hop = self.links[node][forward_port]
                 if not self.back[node][next_hop].empty():
@@ -465,6 +493,14 @@ class Network():
                 packet.next = next_hop
                 self.last[node][packet.forward_port] = timeit.default_timer()
                 self.packet_forward_queue[node][packet.forward_port].put(packet)
+                if self.UDP_loss[node]:
+                    print(node, 'new time out epsilon reset')
+                    self.UDP_loss[node] = False
+                    epsilon = 0.5
+                elif self.UDP_loss_1[node]:
+                    print(node, 'new queue full epsilon reset')
+                    self.UDP_loss_1[node] = False
+                    epsilon = 0.5
                 continue
             if packet.next == packet.source:
                 self.send_fail += 1
@@ -776,8 +812,8 @@ class Network():
                 self.active_packets += 1
                 self.packet_queue[node].put(packet)
                 self.packet_queue_size[node].put(packet.size + current_buffer)
-                if packet.type == 'UDP':
-                    self.UDP_loss_1[node] = False
+                # if packet.type == 'UDP':
+                #     self.UDP_loss_1[node] = False
                 #print('new', node, i, arrival * 10)
             if j % 50 == 0 or j == 1:
                 print(node, j, 'new done')
@@ -789,7 +825,7 @@ class Network():
 
 if __name__ == '__main__':
     N = Network()
-    N.reset('network_sample.csv', 2250)
+    N.reset('network_sample.csv', 1500)
     print(N.n_nodes)
     print(N.packet_queue)  # 给每个节点初始化queue队列 每个queue都是空队列
     print(N.packet_forward_queue)
