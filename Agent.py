@@ -28,7 +28,7 @@ class ADQN:
             self.model.add(Dropout(0.2))
             self.model.add(Dense(8,kernel_initializer='zeros', bias_initializer='zeros',activation='relu'))
             self.model.add(Dropout(0.1))
-            self.model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros'))
+            self.model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros',activation='linear'))
             self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
@@ -45,7 +45,7 @@ class ADQN:
             self.target_model.add(Dropout(0.2))
             self.target_model.add(Dense(8, kernel_initializer='zeros',bias_initializer='zeros',activation='relu'))
             self.target_model.add(Dropout(0.1))
-            self.target_model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros'))
+            self.target_model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros', activation='linear'))
             self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
@@ -136,38 +136,11 @@ class ADQN:
         label_list_array = np.array(label_list)
         label_list_array = label_list_array.reshape(len(state_list),len(Q_eval_list[0]))
         sample_weights = np.array(impotance_sampling_list)
-        label = label_list_array[0].reshape(1,len(Q_eval_list[0]))
-        #print(len(state_input)-1)
-        for i in range(len(state_input)-1):
-            state_input = state_input_array[i].reshape(1,self.n_nodes+1)
-            impotance_sampling = np.atleast_1d(sample_weights[i])
-            # print(state_input)
-            # print(label)
-            with graph.as_default():
-                #print(self.node,'learning start')
-                #reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
-                self.model.fit(state_input, label, epochs=10, verbose=0,sample_weight = impotance_sampling) #callbacks=[reduce_lr])
+        with graph.as_default():
+            #print(self.node,'learning start')
+            reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
+            self.model.fit(state_input_array, label_list_array, batch_size=10, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
             #print(self.node,'learning end')
-            if i != len(state_input) - 2:
-                #print(i)
-                label = self.model.predict(state_input_array[i + 1].reshape(1,self.n_nodes+1))
-                change_port = port_list[i + 1]
-                change_port_index = change_port - 1
-                label[0][change_port_index] = Q_actual_list[i + 1]
-                label = label.reshape(1,len(Q_eval_list[0]))
-        # test_list = []
-        # for i in range(1, self.n_nodes + 1):
-        #     if i != self.node:
-        #         test_list.append(i)
-        # for i in range(len(test_list)):
-        #     print('after learn')
-        #     state_input = to_categorical(test_list[i], num_classes=self.n_nodes + 1)
-        #     state_input[0] = 1
-        #     state_input_array = np.array(state_input)
-        #     state_input_array = state_input_array.reshape(1, self.n_nodes + 1)
-        #     print(state_input_array)
-        #     Q_estimate_array = self.model.predict(state_input_array)
-        #     print(Q_estimate_array)
 
     def update_network(self,beta):
         weight_name = str(self.node) + '_weights.h5'
@@ -192,7 +165,6 @@ class ADQN:
             state_input[0] = 1
             state_input_array = np.array(state_input)
             state_input_array = state_input_array.reshape(1, self.n_nodes + 1)
-            print(state_input_array)
             with graph.as_default():
                 Q_estimate_array = self.target_model.predict(state_input_array)
             print(Q_estimate_array)
