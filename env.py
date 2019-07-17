@@ -187,7 +187,7 @@ class Network():
             current_node_changed_buffer = current_node_current_buffer - packet.size
             self.packet_queue_size[packet.node].put(current_node_changed_buffer)
             packet.delay = packet.delay + transdelay
-            print(packet.type,packet.source,packet.dest,packet.hops)
+            #print(packet.type,packet.source,packet.dest,packet.hops)
             if packet.type == 'TCP':
                 self.latency_TCP[packet.source][packet.dest].append(packet.delay)
                 # self.tcp_loss[packet.node] = False
@@ -300,6 +300,8 @@ class Network():
                 if j % 2 == 0 and j != 0:
                     #print(node,'update')
                     beta = self.agent[node].update_network(beta)
+                    if node == 1:
+                        self.agent[node].show_routing_table()
                 if j % 2 == 0:
                     epsilon = self.agent[node].update_epsilon(epsilon)
                     print(node,epsilon)

@@ -32,7 +32,7 @@ class ADQN:
             self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
-            state_input[0] = 1
+            #state_input[0] = 1
             state_input_array = np.array(state_input)
             state_input_array = state_input_array.reshape(1,self.n_nodes+1)
             self.model.predict(state_input_array)
@@ -49,17 +49,17 @@ class ADQN:
             self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
-            state_input[0] = 1
+            #state_input[0] = 1
             state_input_array = np.array(state_input)
             state_input_array = state_input_array.reshape(1,self.n_nodes+1)
             self.target_model.predict(state_input_array)
     def estimate(self,dest,receive_port,epsilon):   #返回两个值 第一个值是最小Q值的动作（port）， 第二个是epsilon贪婪算法的动作（port）
         state_input = to_categorical(dest,num_classes=self.n_nodes+1)
-        state_input[0] = 1
+        #state_input[0] = 1
         state_input_array = np.array(state_input)
         state_input_array = state_input_array.reshape(1,self.n_nodes+1)
         with graph.as_default():
-            Q_estimate_array = self.model.predict(state_input_array)
+            Q_estimate_array = self.target_model.predict(state_input_array)
         Q_estimate_list = Q_estimate_array.tolist()
         #print('node',self.node)
         #i = 0
@@ -97,8 +97,8 @@ class ADQN:
         weight_name = str(self.node) + '_weights.h5'
         with graph.as_default():
             self.target_model.load_weights(weight_name)
-        state_input = to_categorical(dest, num_classes=self.n_nodes + 1)
-        state_input[0] = 1
+        state_input = to_categorical(dest, num_classes=self.n_nodes+1)
+        # state_input[0] = 1
         state_input_array = np.array(state_input)
         state_input_array = state_input_array.reshape(1, self.n_nodes+1)
         with graph.as_default():
@@ -124,8 +124,8 @@ class ADQN:
         for i in range(len(sample_list)):
             Q_actual_list.append(reward_list[i]+0.9*MinQ_list[i])
         state_input = to_categorical(state_list,num_classes=self.n_nodes+1)
-        for i in range(len(state_input)):
-            state_input[i][0] = 1
+        # for i in range(len(state_input)):
+        #     state_input[i][0] = 1
         state_input_array = np.array(state_input)
         state_input_array = state_input_array.reshape(len(state_list),self.n_nodes+1)
         label_list = Q_eval_list
@@ -138,9 +138,38 @@ class ADQN:
         sample_weights = np.array(impotance_sampling_list)
         with graph.as_default():
             #print(self.node,'learning start')
-            reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
-            self.model.fit(state_input_array, label_list_array, batch_size=10, epochs=5, verbose=0,callbacks=[reduce_lr],sample_weight = sample_weights)
+            #reduce_lr = ReduceLROnPlateau(monitor='loss',factor=0.1, patience=2, mode='auto')
+            self.model.fit(np.array(state_input_array[0]).reshape(1,self.n_nodes+1), np.array(label_list_array[0]).reshape(1,len(Q_eval_list[0])), batch_size=1, epochs=5, verbose=0,sample_weight = np.atleast_1d(sample_weights[0]))
             #print(self.node,'learning end')
+        for i in range(1,len(state_input)):
+            label = self.model.predict(np.array(state_input_array[i]).reshape(1,self.n_nodes+1))
+            if self.node == 1:
+                print(state_input_array[i].reshape(1,self.n_nodes+1))
+                print('ex label',label)
+            change_port = port_list[i]
+            change_port_index = change_port -1
+            label[0][change_port_index] = Q_actual_list[i]
+            label = np.array(label)
+            label = label.reshape(1,len(Q_eval_list[0]))
+            if self.node == 1:
+                print('af label',label)
+            #reduce_lr = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=2, mode='auto')
+            self.model.fit(np.array(state_input_array[i]).reshape(1,self.n_nodes+1), label, batch_size=1, epochs=5, verbose=0)#, sample_weight=np.atleast_1d(sample_weights[i]))
+        if self.node == 1:
+            print('after learning')
+            test_list = []
+            for i in range(1,self.n_nodes+1):
+                if i != self.node:
+                    test_list.append(i)
+            state_input = to_categorical(test_list, num_classes=self.n_nodes+1)
+            # for i in range(len(test_list)):
+            #     state_input[i][0] = 1
+            state_input_array = np.array(state_input)
+            state_input_array = state_input_array.reshape(len(state_input), self.n_nodes+1)
+            Q_estimate_array = self.model.predict(state_input_array)
+            print(state_input_array)
+            print(Q_estimate_array)
+
 
     def update_network(self,beta):
         weight_name = str(self.node) + '_weights.h5'
@@ -167,6 +196,7 @@ class ADQN:
             state_input_array = state_input_array.reshape(1, self.n_nodes + 1)
             with graph.as_default():
                 Q_estimate_array = self.target_model.predict(state_input_array)
+            print(state_input_array)
             print(Q_estimate_array)
 
 # 
@@ -262,8 +292,8 @@ class ADQN:
 # th1.start()
 # th2.start()
 
-a = ADQN(5,1,2)
-a.show_routing_table()
+# a = ADQN(5,1,2)
+# a.show_routing_table()
 
 
 
