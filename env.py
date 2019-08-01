@@ -187,7 +187,7 @@ class Network():
             current_node_changed_buffer = current_node_current_buffer - packet.size
             self.packet_queue_size[packet.node].put(current_node_changed_buffer)
             packet.delay = packet.delay + transdelay
-            #print(packet.type,packet.source,packet.dest,packet.hops)
+            print(packet.type,packet.source,packet.dest,packet.hops)
             if packet.type == 'TCP':
                 self.latency_TCP[packet.source][packet.dest].append(packet.delay)
                 # self.tcp_loss[packet.node] = False
@@ -262,9 +262,10 @@ class Network():
                     receive_port = 0
                 MinQ_port_eval, forward_port, Q_estimate_list = self.agent[node].estimate(dest, receive_port, epsilon)
                 MinQ = self.agent[node].target(dest, MinQ_port_eval)
-                self.back[node][prenode].put((reward, MinQ, preforward_port, dest))
+                if node != prenode:
+                    self.back[node][prenode].put((reward, MinQ, preforward_port, dest))
                 epsilon = 0.5
-                if packet.back:
+                if packet.back and preforward_port:
                     f_port = self.port[prenode][preforward_port]
                     backQ = packet.backQ
                     Q_actual = prereward + 0.9 * backQ
@@ -300,8 +301,8 @@ class Network():
                 if j % 2 == 0 and j != 0:
                     #print(node,'update')
                     beta = self.agent[node].update_network(beta)
-                    if node == 1:
-                        self.agent[node].show_routing_table()
+                    print('node ',node, ' NN output')
+                    self.agent[node].show_routing_table()
                 if j % 2 == 0:
                     epsilon = self.agent[node].update_epsilon(epsilon)
                     print(node,epsilon)

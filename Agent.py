@@ -24,12 +24,12 @@ class ADQN:
         self.n_port = n_port
         with graph.as_default():
             self.model = Sequential()
-            self.model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='zeros',input_shape=(self.n_nodes+1,)))
+            self.model.add(Dense(16, activation='relu',input_shape=(self.n_nodes+1,)))
             self.model.add(Dropout(0.2))
-            self.model.add(Dense(8,kernel_initializer='zeros', bias_initializer='zeros',activation='relu'))
+            self.model.add(Dense(8,activation='relu'))
             self.model.add(Dropout(0.1))
-            self.model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros',activation='linear'))
-            self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
+            self.model.add(Dense(n_port,activation='linear'))
+            self.model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.01), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
             #state_input[0] = 1
@@ -41,12 +41,12 @@ class ADQN:
             self.model.save_weights(weight_name)
         with graph.as_default():
             self.target_model = Sequential()
-            self.target_model.add(Dense(16, activation='relu',bias_initializer='zeros', kernel_initializer='zeros',input_shape=(self.n_nodes+1,)))
+            self.target_model.add(Dense(16, activation='relu',input_shape=(self.n_nodes+1,)))
             self.target_model.add(Dropout(0.2))
-            self.target_model.add(Dense(8, kernel_initializer='zeros',bias_initializer='zeros',activation='relu'))
+            self.target_model.add(Dense(8,activation='relu'))
             self.target_model.add(Dropout(0.1))
-            self.target_model.add(Dense(n_port, kernel_initializer='zeros', bias_initializer='zeros', activation='linear'))
-            self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.1), metrics=['accuracy'])
+            self.target_model.add(Dense(n_port, activation='linear'))
+            self.target_model.compile(loss='mean_squared_error', optimizer=RMSprop(lr=0.01), metrics=['accuracy'])
             a = random.randint(1,self.n_nodes)
             state_input = to_categorical(a,num_classes=self.n_nodes+1)
             #state_input[0] = 1
@@ -143,32 +143,32 @@ class ADQN:
             #print(self.node,'learning end')
         for i in range(1,len(state_input)):
             label = self.model.predict(np.array(state_input_array[i]).reshape(1,self.n_nodes+1))
-            if self.node == 1:
-                print(state_input_array[i].reshape(1,self.n_nodes+1))
-                print('ex label',label)
+            # if self.node == 1:
+            #     print(state_input_array[i].reshape(1,self.n_nodes+1))
+            #     print('ex label',label)
             change_port = port_list[i]
             change_port_index = change_port -1
             label[0][change_port_index] = Q_actual_list[i]
             label = np.array(label)
             label = label.reshape(1,len(Q_eval_list[0]))
-            if self.node == 1:
-                print('af label',label)
+            # if self.node == 1:
+            #     print('af label',label)
             #reduce_lr = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=2, mode='auto')
-            self.model.fit(np.array(state_input_array[i]).reshape(1,self.n_nodes+1), label, batch_size=1, epochs=5, verbose=0)#, sample_weight=np.atleast_1d(sample_weights[i]))
-        if self.node == 1:
-            print('after learning')
-            test_list = []
-            for i in range(1,self.n_nodes+1):
-                if i != self.node:
-                    test_list.append(i)
-            state_input = to_categorical(test_list, num_classes=self.n_nodes+1)
-            # for i in range(len(test_list)):
-            #     state_input[i][0] = 1
-            state_input_array = np.array(state_input)
-            state_input_array = state_input_array.reshape(len(state_input), self.n_nodes+1)
-            Q_estimate_array = self.model.predict(state_input_array)
-            print(state_input_array)
-            print(Q_estimate_array)
+            self.model.fit(np.array(state_input_array[i]).reshape(1,self.n_nodes+1), label, batch_size=1, epochs=5, verbose=0)#sample_weight=np.atleast_1d(sample_weights[i]))
+        # if self.node == 1:
+        #     print('after learning')
+        #     test_list = []
+        #     for i in range(1,self.n_nodes+1):
+        #         if i != self.node:
+        #             test_list.append(i)
+        #     state_input = to_categorical(test_list, num_classes=self.n_nodes+1)
+        #     # for i in range(len(test_list)):
+        #     #     state_input[i][0] = 1
+        #     state_input_array = np.array(state_input)
+        #     state_input_array = state_input_array.reshape(len(state_input), self.n_nodes+1)
+        #     Q_estimate_array = self.model.predict(state_input_array)
+        #     print(state_input_array)
+        #     print(Q_estimate_array)
 
 
     def update_network(self,beta):
